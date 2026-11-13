@@ -1,0 +1,289 @@
+---
+title: "Proficiency test: Corg"
+format: 
+  html:
+    embed-resources: true
+knitr: 
+  opts_chunk: 
+    echo: true
+    message: false
+    warning: false
+code-fold: true
+code-summary: "show the code"
+---
+
+
+```{r}
+library(tidyverse)
+library(here)
+library(ringtest)
+```
+
+
+```{r}
+#| label: import-data
+
+load(here("data/ringtest-pilot.rda"))
+
+# choose substrate of interest
+data_ringtest_subst <- data_ringtest |> 
+  filter(subst == "Corg") |> 
+  unnest(cols = data)
+
+```
+
+
+## Data inspection
+
+Are there any labs with more than 1 record? 
+Yes (duplicates?)
+
+```{r}
+data_ringtest_subst |> 
+  filter(.by = lab_code, n() > 1) |> 
+  select(lab_code, meas_1, meas_2, meas_3, meas_mean)
+```
+
+How should we deal with that? 
+This needs to be addressed by the panel and the involved lab.
+Practical solution: I take the record which seems most plausible in light of the other labs; but there seems to be a mistake in that record, it needs 10-fold multiplication in `meas_2` and `meas_3`.
+
+```{r}
+data_ringtest_subst_clean <- data_ringtest_subst |> 
+  filter(
+    !(lab_code == "29" & round(meas_mean) == 12)
+  ) |> 
+  mutate(
+    meas_2 = case_when(
+      lab_code == "29" ~ meas_2 * 10,
+      TRUE             ~ meas_2
+    ),
+    meas_3 = case_when(
+      lab_code == "29" ~ meas_3 * 10,
+      TRUE             ~ meas_3
+    )
+  )
+```
+
+Are all measurements in the same units?
+Yes.
+
+```{r}
+unique(data_ringtest_subst_clean$meas_unit)
+```
+
+Do all labs report in the same way? 
+No
+
+```{r}
+data_ringtest_subst_clean |> 
+  summarise(.by = data_status, N = n())
+```
+
+A minimum reporting requirement for a lab should be:
+
+- 3 replicate measurements
+- measurement mean and uncertainty (SD)
+
+The following labs don't meet the criteria:
+
+```{r}
+data_ringtest_subst_clean <- data_ringtest_subst_clean |> 
+  mutate(
+    check = case_when(
+      !is.na(meas_1) & !is.na(meas_2) & !is.na(meas_3) ~ "3 measures",
+      !is.na(meas_mean) & !is.na(meas_uncertain) ~ "mean +/- SD",
+      TRUE ~ "not OK"
+    )
+  )
+
+data_ringtest_subst_clean |> 
+  filter(check == "not OK") |> 
+  select(lab_code, meas_1, meas_2, meas_3, meas_4, meas_5, 
+         meas_mean, meas_uncertain)
+
+data_ringtest_subst_clean <- data_ringtest_subst_clean |> 
+  filter(check != "not OK")
+```
+
+We remove the labs not meeting the above requirements (ISO clause 8.4.3.a).
+The alternative is clause 8.4.3.b but I favor to have the same set of labs; to be discussed.
+
+In @fig-vizraw we display the data after the above cleaning steps.
+
+```{r}
+#| label: fig-vizraw
+#| fig-cap: "Raw data vizualisation. For labs reporting at least 3 measures we show the individual measurements and an error-bar extending to +/- 1 SD. For the labs reporting only the mean +/- SD, we show the mean and error-bar only."
+
+data_labs_ind <- data_ringtest_subst_clean |>
+  filter(check == "3 measures") |> 
+  select(lab_code, contains("meas_")) |> 
+  select(-meas_unit) |> 
+  pivot_longer(
+    paste0("meas_", 1:5), names_to = "replicate", 
+    values_to = "soil_descriptor"
+  ) |> 
+  filter(!is.na(soil_descriptor)) |> 
+  mutate(
+    .by = lab_code, 
+    meas_mean      = mean(soil_descriptor),
+    meas_uncertain = sd(soil_descriptor)
+  )
+
+data_labs_aggr <- data_ringtest_subst_clean |>
+  filter(check == "mean +/- SD") |> 
+  select(lab_code, meas_mean, meas_uncertain)
+
+ggplot() +
+  geom_point(
+    data = data_labs_ind, 
+    aes(lab_code, soil_descriptor, color = "at least 3 measures")
+  ) +
+  geom_errorbar(
+    data = data_labs_ind, 
+    aes(lab_code, color = "at least 3 measures", 
+        ymin = meas_mean - meas_uncertain,
+        ymax = meas_mean + meas_uncertain)
+  ) +
+  geom_point(
+    data = data_labs_aggr, 
+    aes(lab_code, meas_mean, color = "mean +/- SD")
+  ) +
+  geom_errorbar(
+    data = data_labs_aggr, 
+    aes(lab_code, color = "mean +/- SD",
+        ymin = meas_mean - meas_uncertain,
+        ymax = meas_mean + meas_uncertain)
+  ) +
+  labs(x = "lab", y = "soil descriptor", color = "type of reporting")
+
+```
+
+## Proficiency test (ISO procedure)
+
+How should we deal with this difference in reporting? 
+We can't use REML estimation, as this requires the raw data per replicate for all labs.
+We therefore use the classic approach based on cell-statistics.
+
+We combine the cell-statistics from the two types of reporting.
+For labs reporting aggregated data, it is not reported on how many replicates this is based; we make the assumption of three replicates, but this needs verification.
+
+```{r}
+cell_stats <- rbind(
+  # labs reporting individual data 
+  data_labs_ind |> 
+    rename(
+      lab = lab_code,
+      value = soil_descriptor
+    ) |> 
+    mutate(level = 1) |> 
+    calc_cell_stats(),
+  # labs reporting aggregated data
+  data_labs_aggr |> 
+    rename(
+      lab = lab_code,
+      mean = meas_mean,
+      sd = meas_uncertain
+    ) |> 
+    mutate(
+      level = 1, 
+      n = 3 # assumption: it is not reported on how many replicates it is based
+    )
+)
+
+print(cell_stats)
+```
+
+We calculate the Mandel $h$ and $k$ statistics to inspect for outlying means and variances, results are shown in @fig-mandel.
+
+```{r}
+#| label: fig-mandel
+#| fig-cap: "Mandel's h & k statistics. Labs with outlying values at the 5% significance level are colored differently."
+
+calc_mandel_hk(cell_stats, alpha = 0.05) |> 
+  plot_mandel_hk()
+```
+
+Outlier removal should be an interactive process where the experts from the panel evaluate the data from a lab that is identified as outlier or straggler.
+For now I just follow the statistical ISO procedure where I retain stragglers and remove outliers.
+The ISO procedure mentions that only 2/9 of the data from a given level should be removed (8.3.6.2§2); which means for `r nrow(cell_stats)` labs only `r round((2/9) * nrow(cell_stats))` can be removed; however, we previously removed already labs not meeting the reporting requirements, and I'm not sure if we have to count them as well?
+The final cleaned statistics per lab are shown in @fig-clean-cellstats.
+
+```{r}
+# iteration (1)
+outl_strag_1 <- cell_stats |> 
+  test_outliers() |> 
+  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
+outl_strag_1
+outl_1 <- outl_strag_1 |> 
+  filter(
+    cochran == "Outlier (**)" | 
+      grubbs_single == "Outlier (**)" |
+      grubbs_double == "Outlier (**)"
+  )
+cell_stats_1 <- anti_join(cell_stats, outl_1, by = c("lab", "level"))
+
+# iteration (2)
+outl_strag_2 <- cell_stats_1 |> 
+  test_outliers() |> 
+  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
+outl_strag_2
+outl_2 <- outl_strag_2 |> 
+  filter(
+    cochran == "Outlier (**)" | 
+      grubbs_single == "Outlier (**)" |
+      grubbs_double == "Outlier (**)"
+  )
+cell_stats_2 <- anti_join(cell_stats_1, outl_2, by = c("lab", "level"))
+
+# iteration (3)
+outl_strag_3 <- cell_stats_2 |> 
+  test_outliers() |> 
+  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
+outl_strag_3
+outl_3 <- outl_strag_3 |> 
+  filter(
+    cochran == "Outlier (**)" | 
+      grubbs_single == "Outlier (**)" |
+      grubbs_double == "Outlier (**)"
+  )
+cell_stats_3 <- anti_join(cell_stats_2, outl_3, by = c("lab", "level"))
+
+# iteration (4)
+outl_strag_4 <- cell_stats_3 |> 
+  test_outliers() |> 
+  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
+outl_strag_4 # => only stragglers are identified, the procedure ends
+
+cell_stats_final <- cell_stats_3
+```
+
+```{r}
+#| label: fig-clean-cellstats
+#| fig-cap: "Aggregated statistics per lab after outlier removal."
+
+cell_stats_final |> 
+  ggplot(aes(lab, mean, ymin = mean - sd, ymax = mean + sd)) +
+  geom_point() +
+  geom_errorbar() +
+  labs(x = "lab", y = "soil descriptor")
+```
+
+We now calculate the cleand mean and the variance components (as SD):
+
+- `m_hat` = cleaned mean
+- `s_r` = repeatability SD
+- `s_L` = inter-laboratory SD
+- `s_R` = reproducibility SD
+
+$$
+\sigma_R^2 = \sigma_r^2 + \sigma_L^2
+$$
+
+```{r}
+res <- ringtest(cell_stats_final)
+res
+```
+
+
+
