@@ -42,7 +42,8 @@ data_ringtest <- EUSoilLabs_LRT_data_anonymous_20261104 |>
       data_status, 1:4, c("at least 3 measured values submitted",
                           "less than 3 measured values submitted",
                           "mean +/- SD submitted",
-                          "value and unknown uncertainty submitted")
+                          "value and unknown uncertainty submitted"),
+      ordered = TRUE
     )
   ) |> 
   # number of reporting labs per subst
