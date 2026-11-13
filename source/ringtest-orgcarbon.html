@@ -2368,7 +2368,7 @@ window.Quarto = {
 <summary>show the code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidyverse)</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(here)</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ringtest)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ringtest) <span class="co"># remotes::install_github(&quot;bserrien/ringtest&quot;)</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
 <div class="cell">
@@ -2451,7 +2451,7 @@ window.Quarto = {
 <li>3 replicate measurements</li>
 <li>measurement mean and uncertainty (SD)</li>
 </ul>
-<p>This is not for all labs the case:</p>
+<p>The following labs don’t meet the criteria:</p>
 <div class="cell">
 <details class="code-fold">
 <summary>show the code</summary>
@@ -2750,6 +2750,95 @@ Figure 3: Aggregated statistics per lab after outlier removal.
 <div class="cell-output cell-output-stdout">
 <pre><code>   p    m_hat       s_r       s_L       s_R level
 1 20 9.169251 0.1544438 0.5544166 0.5755264     1</code></pre>
+</div>
+</div>
+</section>
+<section id="alternative-with-bayesian-model-non-iso" class="level2">
+<h2 class="anchored" data-anchor-id="alternative-with-bayesian-model-non-iso">Alternative with Bayesian model (non-ISO)</h2>
+<p>Suggestion of Hans to try an alternative using a single Bayesian model that handles both individual measurements and aggregated cell statistics. This model allows to take the labs into account that reported only 1 or 2 measurements but below I apply it to the same labs as above (after the cleaning of outliers) to allow comparison of the results. …. to be continued: results do not align (except for the general mean)</p>
+<div class="cell">
+<details class="code-fold">
+<summary>show the code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(brms)</span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Combine raw and aggregated data (after your outlier removal)</span></span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a>df_raw <span class="ot">&lt;-</span> data_labs_ind <span class="sc">|&gt;</span></span>
+<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(lab_code <span class="sc">%in%</span> cell_stats_final<span class="sc">$</span>lab) <span class="sc">|&gt;</span></span>
+<span id="cb29-6"><a href="#cb29-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(</span>
+<span id="cb29-7"><a href="#cb29-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">lab =</span> lab_code,</span>
+<span id="cb29-8"><a href="#cb29-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">yi =</span> soil_descriptor,</span>
+<span id="cb29-9"><a href="#cb29-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">sei =</span> <span class="dv">0</span>,</span>
+<span id="cb29-10"><a href="#cb29-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">is_raw =</span> <span class="dv">1</span></span>
+<span id="cb29-11"><a href="#cb29-11" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb29-12"><a href="#cb29-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-13"><a href="#cb29-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-14"><a href="#cb29-14" aria-hidden="true" tabindex="-1"></a>df_aggr <span class="ot">&lt;-</span> data_labs_aggr <span class="sc">|&gt;</span></span>
+<span id="cb29-15"><a href="#cb29-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(lab_code <span class="sc">%in%</span> cell_stats_final<span class="sc">$</span>lab) <span class="sc">|&gt;</span></span>
+<span id="cb29-16"><a href="#cb29-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(</span>
+<span id="cb29-17"><a href="#cb29-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">lab =</span> lab_code,</span>
+<span id="cb29-18"><a href="#cb29-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">yi =</span> meas_mean,</span>
+<span id="cb29-19"><a href="#cb29-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">sei =</span> meas_uncertain,<span class="co"># / sqrt(3), # Convert reported SD to SE (assuming n = 3)</span></span>
+<span id="cb29-20"><a href="#cb29-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">is_raw =</span> <span class="dv">0</span></span>
+<span id="cb29-21"><a href="#cb29-21" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb29-22"><a href="#cb29-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-23"><a href="#cb29-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-24"><a href="#cb29-24" aria-hidden="true" tabindex="-1"></a>df_brms <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(df_raw, df_aggr)</span>
+<span id="cb29-25"><a href="#cb29-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-26"><a href="#cb29-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-27"><a href="#cb29-27" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. Specify the brms formula</span></span>
+<span id="cb29-28"><a href="#cb29-28" aria-hidden="true" tabindex="-1"></a><span class="co"># - Intercept = m_hat (consensus mean)</span></span>
+<span id="cb29-29"><a href="#cb29-29" aria-hidden="true" tabindex="-1"></a><span class="co"># - sd(Intercept) for lab = s_L (inter-laboratory SD)</span></span>
+<span id="cb29-30"><a href="#cb29-30" aria-hidden="true" tabindex="-1"></a><span class="co"># - exp(logsigma) = s_r (repeatability SD, estimated from raw replicates)</span></span>
+<span id="cb29-31"><a href="#cb29-31" aria-hidden="true" tabindex="-1"></a>bform <span class="ot">&lt;-</span> <span class="fu">bf</span>(</span>
+<span id="cb29-32"><a href="#cb29-32" aria-hidden="true" tabindex="-1"></a>  yi <span class="sc">|</span> <span class="fu">se</span>(sei, <span class="at">sigma =</span> <span class="cn">TRUE</span>) <span class="sc">~</span> <span class="dv">1</span> <span class="sc">+</span> (<span class="dv">1</span> <span class="sc">|</span> lab),</span>
+<span id="cb29-33"><a href="#cb29-33" aria-hidden="true" tabindex="-1"></a>  <span class="fu">nlf</span>(sigma <span class="sc">~</span> is_raw <span class="sc">*</span> <span class="fu">exp</span>(logsigma)),</span>
+<span id="cb29-34"><a href="#cb29-34" aria-hidden="true" tabindex="-1"></a>  logsigma <span class="sc">~</span> <span class="dv">1</span></span>
+<span id="cb29-35"><a href="#cb29-35" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb29-36"><a href="#cb29-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-37"><a href="#cb29-37" aria-hidden="true" tabindex="-1"></a>pr <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb29-38"><a href="#cb29-38" aria-hidden="true" tabindex="-1"></a>  <span class="fu">prior</span>(<span class="fu">normal</span>(<span class="dv">9</span>, <span class="dv">2</span>), <span class="at">class =</span> <span class="st">&quot;Intercept&quot;</span>), <span class="co"># w.inf. prior around consensus mean</span></span>
+<span id="cb29-39"><a href="#cb29-39" aria-hidden="true" tabindex="-1"></a>  <span class="fu">prior</span>(<span class="fu">student_t</span>(<span class="dv">3</span>, <span class="dv">0</span>, <span class="dv">1</span>), <span class="at">class =</span> <span class="st">&quot;sd&quot;</span>),  <span class="co"># prior for s_L</span></span>
+<span id="cb29-40"><a href="#cb29-40" aria-hidden="true" tabindex="-1"></a>  <span class="fu">prior</span>(<span class="fu">normal</span>(<span class="sc">-</span><span class="fl">1.5</span>, <span class="dv">1</span>), <span class="at">class =</span> <span class="st">&quot;b&quot;</span>, <span class="at">nlpar =</span> <span class="st">&quot;logsigma&quot;</span>) <span class="co"># prior for log(s_r)</span></span>
+<span id="cb29-41"><a href="#cb29-41" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb29-42"><a href="#cb29-42" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-43"><a href="#cb29-43" aria-hidden="true" tabindex="-1"></a><span class="co"># 3. Fit the model</span></span>
+<span id="cb29-44"><a href="#cb29-44" aria-hidden="true" tabindex="-1"></a>fit_iso <span class="ot">&lt;-</span> <span class="fu">brm</span>(</span>
+<span id="cb29-45"><a href="#cb29-45" aria-hidden="true" tabindex="-1"></a>  <span class="at">formula =</span> bform,</span>
+<span id="cb29-46"><a href="#cb29-46" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> df_brms,</span>
+<span id="cb29-47"><a href="#cb29-47" aria-hidden="true" tabindex="-1"></a>  <span class="at">prior =</span> pr,</span>
+<span id="cb29-48"><a href="#cb29-48" aria-hidden="true" tabindex="-1"></a>  <span class="at">cores =</span> <span class="dv">4</span>,</span>
+<span id="cb29-49"><a href="#cb29-49" aria-hidden="true" tabindex="-1"></a>  <span class="at">backend =</span> <span class="st">&quot;cmdstanr&quot;</span>,</span>
+<span id="cb29-50"><a href="#cb29-50" aria-hidden="true" tabindex="-1"></a>  <span class="at">file =</span> <span class="st">&quot;model_raw_aggr&quot;</span>,</span>
+<span id="cb29-51"><a href="#cb29-51" aria-hidden="true" tabindex="-1"></a>  <span class="at">file_refit =</span> <span class="st">&quot;on_change&quot;</span>,</span>
+<span id="cb29-52"><a href="#cb29-52" aria-hidden="true" tabindex="-1"></a>  <span class="at">silent =</span> <span class="dv">2</span>,</span>
+<span id="cb29-53"><a href="#cb29-53" aria-hidden="true" tabindex="-1"></a>  <span class="at">seed =</span> <span class="dv">123</span></span>
+<span id="cb29-54"><a href="#cb29-54" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb29-55"><a href="#cb29-55" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-56"><a href="#cb29-56" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(fit_iso)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code> Family: gaussian 
+  Links: mu = identity; sigma = log 
+Formula: yi | se(sei, sigma = TRUE) ~ 1 + (1 | lab) 
+         sigma ~ is_raw * exp(logsigma)
+         logsigma ~ 1
+   Data: df_brms (Number of observations: 61) 
+  Draws: 4 chains, each with iter = 2000; warmup = 1000; thin = 1;
+         total post-warmup draws = 4000
+
+Multilevel Hyperparameters:
+~lab (Number of levels: 20) 
+              Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
+sd(Intercept)     0.21      0.16     0.01     0.57 1.00     1680     1711
+
+Regression Coefficients:
+                   Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
+Intercept              9.15      0.14     8.88     9.43 1.00     4629     3007
+logsigma_Intercept    -3.34      0.64    -4.73    -2.21 1.00     4594     2389
+
+Draws were sampled using sample(hmc). For each parameter, Bulk_ESS
+and Tail_ESS are effective sample size measures, and Rhat is the potential
+scale reduction factor on split chains (at convergence, Rhat = 1).</code></pre>
 </div>
 </div>
 </section>

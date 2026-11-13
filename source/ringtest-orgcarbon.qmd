@@ -285,5 +285,70 @@ res <- ringtest(cell_stats_final)
 res
 ```
 
+## Alternative with Bayesian model (non-ISO)
+
+Suggestion of Hans to try an alternative using a single Bayesian model that handles both individual measurements and aggregated cell statistics.
+This model allows to take the labs into account that reported only 1 or 2 measurements but below I apply it to the same labs as above (after the cleaning of outliers) to allow comparison of the results.
+.... to be continued: results do not align (except for the general mean)
+
+```{r}
+library(brms)
+
+# 1. Combine raw and aggregated data (after your outlier removal)
+df_raw <- data_labs_ind |>
+  filter(lab_code %in% cell_stats_final$lab) |>
+  transmute(
+    lab = lab_code,
+    yi = soil_descriptor,
+    sei = 0,
+    is_raw = 1
+  )
+
+
+df_aggr <- data_labs_aggr |>
+  filter(lab_code %in% cell_stats_final$lab) |>
+  transmute(
+    lab = lab_code,
+    yi = meas_mean,
+    sei = meas_uncertain,# / sqrt(3), # Convert reported SD to SE (assuming n = 3)
+    is_raw = 0
+  )
+
+
+df_brms <- bind_rows(df_raw, df_aggr)
+
+
+# 2. Specify the brms formula
+# - Intercept = m_hat (consensus mean)
+# - sd(Intercept) for lab = s_L (inter-laboratory SD)
+# - exp(logsigma) = s_r (repeatability SD, estimated from raw replicates)
+bform <- bf(
+  yi | se(sei, sigma = TRUE) ~ 1 + (1 | lab),
+  nlf(sigma ~ is_raw * exp(logsigma)),
+  logsigma ~ 1
+)
+
+pr <- c(
+  prior(normal(9, 2), class = "Intercept"), # w.inf. prior around consensus mean
+  prior(student_t(3, 0, 1), class = "sd"),  # prior for s_L
+  prior(normal(-1.5, 1), class = "b", nlpar = "logsigma") # prior for log(s_r)
+)
+
+# 3. Fit the model
+fit_iso <- brm(
+  formula = bform,
+  data = df_brms,
+  prior = pr,
+  cores = 4,
+  backend = "cmdstanr",
+  file = "model_raw_aggr",
+  file_refit = "on_change",
+  silent = 2,
+  seed = 123
+)
+
+summary(fit_iso)
+```
+
 
 
