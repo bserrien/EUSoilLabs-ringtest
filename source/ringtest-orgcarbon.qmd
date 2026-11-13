@@ -16,7 +16,7 @@ code-summary: "show the code"
 ```{r}
 library(tidyverse)
 library(here)
-library(ringtest)
+library(ringtest) # remotes::install_github("bserrien/ringtest")
 ```
 
 
