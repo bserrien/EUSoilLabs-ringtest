@@ -322,7 +322,6 @@ df_brms <- bind_rows(df_raw, df_aggr)
 # - Intercept = m_hat (consensus mean)
 # - sd(Intercept) for lab = s_L (inter-laboratory SD)
 # - exp(logsigma) = s_r (repeatability SD, estimated from raw replicates)
-bform <- bf(
   yi | se(sei, sigma = TRUE) ~ 1 + (1 | lab),
   nlf(sigma ~ is_raw * exp(logsigma)),
   logsigma ~ 1
@@ -330,18 +329,16 @@ bform <- bf(
 
 pr <- c(
   prior(normal(9, 2), class = "Intercept"), # w.inf. prior around consensus mean
-  prior(student_t(3, 0, 1), class = "sd"),  # prior for s_L
   prior(normal(-1.5, 1), class = "b", nlpar = "logsigma") # prior for log(s_r)
 )
 
+
 # 3. Fit the model
 fit_iso <- brm(
-  formula = bform,
   data = df_brms,
   prior = pr,
   cores = 4,
   backend = "cmdstanr",
-  file = "model_raw_aggr",
   file_refit = "on_change",
   silent = 2,
   seed = 123
