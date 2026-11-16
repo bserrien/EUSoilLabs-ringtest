@@ -248,6 +248,7 @@ How are these values defined/calculated? (otherwise difficult to compare with re
 
 ```{r}
 data_ringtest_subst_clean |> 
-  distinct(standard_total_value, standard_total_uncertain)
+  distinct(standard_total_value, standard_total_uncertain,
+           standard_extract_value, standard_extract_uncertain)
 ```
 
