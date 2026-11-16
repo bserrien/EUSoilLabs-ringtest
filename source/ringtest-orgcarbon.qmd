@@ -322,8 +322,12 @@ df_brms <- bind_rows(df_raw, df_aggr)
 # - Intercept = m_hat (consensus mean)
 # - sd(Intercept) for lab = s_L (inter-laboratory SD)
 # - exp(logsigma) = s_r (repeatability SD, estimated from raw replicates)
-  nlf(sigma ~ is_raw * exp(logsigma)),
-  logsigma ~ 1
+b_form <- bf(yi | se(sei, sigma = TRUE) ~ 1 + (1 | lab)) +
+  nlf(sigma ~ is_raw * exp(eta)) +
+  lf(eta ~ 1)
+  nl = TRUE
+  # nlf(sigma ~ is_raw * exp(logsigma)),
+  # logsigma ~ 1
 )
 
 pr <- c(
