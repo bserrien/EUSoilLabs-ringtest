@@ -294,26 +294,26 @@ This model allows to take the labs into account that reported only 1 or 2 measur
 ```{r}
 library(brms)
 
-# 1. Combine raw and aggregated data (after your outlier removal)
+# 1. Combine raw and aggregated data (after outlier removal)
 df_raw <- data_labs_ind |>
   filter(lab_code %in% cell_stats_final$lab) |>
-  transmute(
+  mutate(
     lab = lab_code,
     yi = soil_descriptor,
     sei = 0,
-    is_raw = 1
+    is_raw = 1,
+    .keep = "none"
   )
-
 
 df_aggr <- data_labs_aggr |>
   filter(lab_code %in% cell_stats_final$lab) |>
-  transmute(
+  mutate(
     lab = lab_code,
     yi = meas_mean,
-    sei = meas_uncertain,# / sqrt(3), # Convert reported SD to SE (assuming n = 3)
-    is_raw = 0
+    sei = meas_uncertain / sqrt(3), # Convert SD to SE (assuming n = 3)
+    is_raw = 0,
+    .keep = "none"
   )
-
 
 df_brms <- bind_rows(df_raw, df_aggr)
 
