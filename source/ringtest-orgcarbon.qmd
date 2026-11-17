@@ -45,23 +45,12 @@ data_ringtest_subst |>
 ```
 
 How should we deal with that? 
-This needs to be addressed by the panel and the involved lab.
-Practical solution: I take the record which seems most plausible in light of the other labs; but there seems to be a mistake in that record, it needs 10-fold multiplication in `meas_2` and `meas_3`.
+The email from 17/11/2026 mentions that the second row is the correct data.
 
 ```{r}
 data_ringtest_subst_clean <- data_ringtest_subst |> 
   filter(
-    !(lab_code == "29" & round(meas_mean) == 12)
-  ) |> 
-  mutate(
-    meas_2 = case_when(
-      lab_code == "29" ~ meas_2 * 10,
-      TRUE             ~ meas_2
-    ),
-    meas_3 = case_when(
-      lab_code == "29" ~ meas_3 * 10,
-      TRUE             ~ meas_3
-    )
+    !(lab_code == "29" & round(meas_mean) == 4)
   )
 ```
 
@@ -107,7 +96,6 @@ data_ringtest_subst_clean <- data_ringtest_subst_clean |>
 ```
 
 We remove the labs not meeting the above requirements (ISO clause 8.4.3.a).
-The alternative is clause 8.4.3.b but I favor to have the same set of labs; to be discussed.
 
 In @fig-vizraw we display the data after the above cleaning steps.
 
@@ -163,7 +151,7 @@ ggplot() +
 
 How should we deal with this difference in reporting? 
 We can't use REML estimation, as this requires the raw data per replicate for all labs.
-We therefore use the classic approach based on cell-statistics.
+We therefore use the classic approach based on aggregated cell-statistics.
 
 We combine the cell-statistics from the two types of reporting.
 For labs reporting aggregated data, it is not reported on how many replicates this is based; we make the assumption of three replicates, but this needs verification.
@@ -205,57 +193,14 @@ calc_mandel_hk(cell_stats, alpha = 0.05) |>
 ```
 
 Outlier removal should be an interactive process where the experts from the panel evaluate the data from a lab that is identified as outlier or straggler.
-For now I just follow the statistical ISO procedure where I retain stragglers and remove outliers.
-The ISO procedure mentions that only 2/9 of the data from a given level should be removed (8.3.6.2§2); which means for `r nrow(cell_stats)` labs only `r round((2/9) * nrow(cell_stats))` can be removed; however, we previously removed already labs not meeting the reporting requirements, and I'm not sure if we have to count them as well?
+Below we remove the outliers according to the ISO procedure using the Cochran (outlying variance) and Grubbs' tests (outlying means).
+The function `outlier_removal_iso` automates the process without due investigation but prints the results so researchers can inspect the labs which have been removed.
+The ISO procedure mentions that only 2/9 of the data from a given level should be removed (8.3.6.2§2); which means for `r nrow(cell_stats)` labs only `r round((2/9) * nrow(cell_stats))` can be removed; however, we previously removed already labs not meeting the reporting requirements, and I'm not sure if we have to count them as well (ISO manual is not clear on that point)?
+
 The final cleaned statistics per lab are shown in @fig-clean-cellstats.
 
 ```{r}
-# iteration (1)
-outl_strag_1 <- cell_stats |> 
-  test_outliers() |> 
-  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
-outl_strag_1
-outl_1 <- outl_strag_1 |> 
-  filter(
-    cochran == "Outlier (**)" | 
-      grubbs_single == "Outlier (**)" |
-      grubbs_double == "Outlier (**)"
-  )
-cell_stats_1 <- anti_join(cell_stats, outl_1, by = c("lab", "level"))
-
-# iteration (2)
-outl_strag_2 <- cell_stats_1 |> 
-  test_outliers() |> 
-  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
-outl_strag_2
-outl_2 <- outl_strag_2 |> 
-  filter(
-    cochran == "Outlier (**)" | 
-      grubbs_single == "Outlier (**)" |
-      grubbs_double == "Outlier (**)"
-  )
-cell_stats_2 <- anti_join(cell_stats_1, outl_2, by = c("lab", "level"))
-
-# iteration (3)
-outl_strag_3 <- cell_stats_2 |> 
-  test_outliers() |> 
-  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
-outl_strag_3
-outl_3 <- outl_strag_3 |> 
-  filter(
-    cochran == "Outlier (**)" | 
-      grubbs_single == "Outlier (**)" |
-      grubbs_double == "Outlier (**)"
-  )
-cell_stats_3 <- anti_join(cell_stats_2, outl_3, by = c("lab", "level"))
-
-# iteration (4)
-outl_strag_4 <- cell_stats_3 |> 
-  test_outliers() |> 
-  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
-outl_strag_4 # => only stragglers are identified, the procedure ends
-
-cell_stats_final <- cell_stats_3
+cell_stats_final <- outlier_removal_iso(cell_stats, maxiter = NULL)
 ```
 
 ```{r}
@@ -281,77 +226,12 @@ $$
 $$
 
 ```{r}
-res <- ringtest(cell_stats_final)
+res <- ringtest(cell_stats_final) |> 
+  mutate(
+    # add coefficients of variation
+    cv_r = s_r / m_hat,
+    cv_L = s_L / m_hat,
+    cv_R = s_R / m_hat
+  )
 res
 ```
-
-## Alternative with Bayesian model (non-ISO)
-
-Suggestion of Hans to try an alternative using a single Bayesian model that handles both individual measurements and aggregated cell statistics.
-This model allows to take the labs into account that reported only 1 or 2 measurements but below I apply it to the same labs as above (after the cleaning of outliers) to allow comparison of the results.
-.... to be continued: results do not align (except for the general mean)
-
-```{r}
-library(brms)
-
-# 1. Combine raw and aggregated data (after outlier removal)
-df_raw <- data_labs_ind |>
-  filter(lab_code %in% cell_stats_final$lab) |>
-  mutate(
-    lab = lab_code,
-    yi = soil_descriptor,
-    sei = 0,
-    is_raw = 1,
-    .keep = "none"
-  )
-
-df_aggr <- data_labs_aggr |>
-  filter(lab_code %in% cell_stats_final$lab) |>
-  mutate(
-    lab = lab_code,
-    yi = meas_mean,
-    sei = meas_uncertain / sqrt(3), # Convert SD to SE (assuming n = 3)
-    is_raw = 0,
-    .keep = "none"
-  )
-
-df_brms <- bind_rows(df_raw, df_aggr)
-
-
-# 2. Specify the brms formula
-# - Intercept = m_hat (consensus mean)
-# - sd(Intercept) for lab = s_L (inter-laboratory SD)
-# - exp(logsigma) = s_r (repeatability SD, estimated from raw replicates)
-b_form <- bf(yi | se(sei, sigma = TRUE) ~ 1 + (1 | lab)) +
-  nlf(sigma ~ is_raw * exp(eta)) +
-  lf(eta ~ 1)
-  nl = TRUE
-  # nlf(sigma ~ is_raw * exp(logsigma)),
-  # logsigma ~ 1
-)
-
-pr <- c(
-  prior(normal(9, 2), class = "Intercept"), # w.inf. prior around consensus mean
-  prior(student_t(3, 0, 1), class = "sd", lb = 0),  # prior for s_L
-  prior(normal(-1.5, 1), class = "b", nlpar = "eta") # prior for log(s_r)
-)
-
-
-# 3. Fit the model
-fit_iso <- brm(
-  formula = b_form,
-  data = df_brms,
-  prior = pr,
-  cores = 4,
-  backend = "cmdstanr",
-  # file = "model_raw_aggr",
-  # file_refit = "on_change",
-  silent = 2,
-  seed = 123
-)
-
-summary(fit_iso)
-```
-
-
-

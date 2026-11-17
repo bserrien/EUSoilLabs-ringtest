@@ -87,7 +87,6 @@ data_ringtest_subst_clean <- data_ringtest_subst_clean |>
 ```
 
 We remove the labs not meeting the above requirements (ISO clause 8.4.3.a).
-The alternative is clause 8.4.3.b but I favor to have the same set of labs; to be discussed.
 
 In @fig-vizraw we display the data after the above cleaning steps.
 
@@ -192,55 +191,32 @@ calc_mandel_hk(cell_stats, alpha = 0.05) |>
 ```
 
 Outlier removal should be an interactive process where the experts from the panel evaluate the data from a lab that is identified as outlier or straggler.
-For now I just follow the statistical ISO procedure where I retain stragglers and remove outliers.
-The ISO procedure mentions that only 2/9 of the data from a given level should be removed (8.3.6.2§2); which means for `r nrow(cell_stats)` labs only `r round((2/9) * nrow(cell_stats))` can be removed; however, we previously removed already labs not meeting the reporting requirements, and I'm not sure if we have to count them as well?
+Below we remove the outliers according to the ISO procedure using the Cochran (outlying variance) and Grubbs' tests (outlying means).
+The function `outlier_removal_iso` automates the process without due investigation but prints the results so researchers can inspect the labs which have been removed.
+The ISO procedure mentions that only 2/9 of the data from a given level should be removed (8.3.6.2§2); which means for `r nrow(cell_stats)` labs only `r round((2/9) * nrow(cell_stats))` can be removed; however, we previously removed already labs not meeting the reporting requirements, and I'm not sure if we have to count them as well (ISO manual is not clear on that point)?
+
 The final cleaned statistics per lab are shown in @fig-clean-cellstats.
 
 ```{r}
-# iteration (1)
-outl_strag_1 <- cell_stats |> 
-  test_outliers() |> 
-  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
-outl_strag_1
-outl_1 <- outl_strag_1 |> 
-  filter(
-    cochran == "Outlier (**)" | 
-      grubbs_single == "Outlier (**)" |
-      grubbs_double == "Outlier (**)"
-  )
-cell_stats_1 <- anti_join(cell_stats, outl_1, by = c("lab", "level"))
-
-# iteration (2)
-outl_strag_2 <- cell_stats_1 |> 
-  test_outliers() |> 
-  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
-outl_strag_2
-outl_2 <- outl_strag_2 |> 
-  filter(
-    cochran == "Outlier (**)" | 
-      grubbs_single == "Outlier (**)" |
-      grubbs_double == "Outlier (**)"
-  )
-cell_stats_2 <- anti_join(cell_stats_1, outl_2, by = c("lab", "level"))
-
-# iteration (3)
-outl_strag_3 <- cell_stats_2 |> 
-  test_outliers() |> 
-  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
-outl_strag_3 # => no outliers/stragglers are identified, the procedure ends
-
-cell_stats_final <- cell_stats_2
+cell_stats_final <- outlier_removal_iso(cell_stats)
 ```
 
 ```{r}
 #| label: fig-clean-cellstats
 #| fig-cap: "Aggregated statistics per lab after outlier removal."
 
+# standard value (reference measurement?)
+standard    <- unique(data_ringtest_subst_clean$standard_total_value)
+standard_sd <- unique(data_ringtest_subst_clean$standard_total_uncertain)
+
 cell_stats_final |> 
   ggplot(aes(lab, mean, ymin = mean - sd, ymax = mean + sd)) +
   geom_point() +
   geom_errorbar() +
-  labs(x = "lab", y = "soil descriptor")
+  geom_hline(yintercept = standard, lty = 2) +
+  geom_hline(yintercept = standard + c(-1, 1) * standard_sd, lty = 3) +
+  labs(x = "lab", y = "soil descriptor",
+       caption = "The horizontal dashed lines are the standard mean +/- standard SD")
 ```
 
 We now calculate the cleand mean and the variance components (as SD):
@@ -255,7 +231,13 @@ $$
 $$
 
 ```{r}
-res <- ringtest(cell_stats_final)
+res <- ringtest(cell_stats_final) |> 
+  mutate(
+    # add coefficients of variation
+    cv_r = s_r / m_hat,
+    cv_L = s_L / m_hat,
+    cv_R = s_R / m_hat
+  )
 res
 ```
 
@@ -266,10 +248,3 @@ How are these values defined/calculated? (otherwise difficult to compare with re
 data_ringtest_subst_clean |> 
   distinct(standard_total_value, standard_total_uncertain)
 ```
-
-
-
-
-
-
-

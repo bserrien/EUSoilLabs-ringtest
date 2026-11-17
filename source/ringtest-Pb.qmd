@@ -46,13 +46,11 @@ data_ringtest_subst |>
 
 How should we deal with that? 
 This needs to be addressed by the panel and the involved lab.
-Practical solution: I take the record which seems most plausible in light of the other labs.
+Practical temporary solution: I take the first record.
 
 ```{r}
 data_ringtest_subst_clean <- data_ringtest_subst |> 
-  filter(
-    !(lab_code == "40" & meas_mean < 30)
-  )
+  distinct(lab_code, .keep_all = TRUE)
 ```
 
 Are all measurements in the same units?
@@ -97,7 +95,6 @@ data_ringtest_subst_clean <- data_ringtest_subst_clean |>
 ```
 
 We remove the labs not meeting the above requirements (ISO clause 8.4.3.a).
-The alternative is clause 8.4.3.b but I favor to have the same set of labs; to be discussed.
 
 In @fig-vizraw we display the data after the above cleaning steps.
 
@@ -106,8 +103,8 @@ In @fig-vizraw we display the data after the above cleaning steps.
 #| fig-cap: "Raw data vizualisation. For labs reporting at least 3 measures we show the individual measurements and an error-bar extending to +/- 1 SD. For the labs reporting only the mean +/- SD, we show the mean and error-bar only."
 
 # standard value (reference measurement?)
-standard    <- unique(data_ringtest_subst_clean$standard_total_value)
-standard_sd <- unique(data_ringtest_subst_clean$standard_total_uncertain)
+standard    <- unique(data_ringtest_subst_clean$standard_extract_value)
+standard_sd <- unique(data_ringtest_subst_clean$standard_extract_uncertain)
 
 data_labs_ind <- data_ringtest_subst_clean |>
   filter(check == "3 measures") |> 
@@ -207,23 +204,23 @@ The ISO procedure mentions that only 2/9 of the data from a given level should b
 The final cleaned statistics per lab are shown in @fig-clean-cellstats.
 
 ```{r}
-# iteration (1)
-outl_strag_1 <- cell_stats |> 
-  test_outliers() |> 
-  filter(!is.na(coalesce(cochran, grubbs_single, grubbs_double)))
-outl_strag_1 # => only 1 straggler is identified, the procedure ends
-
-cell_stats_final <- cell_stats
+cell_stats_final <- outlier_removal_iso(cell_stats)
 ```
 
 ```{r}
 #| label: fig-clean-cellstats
 #| fig-cap: "Aggregated statistics per lab after outlier removal."
 
+# standard value (reference measurement?)
+standard    <- unique(data_ringtest_subst_clean$standard_extract_value)
+standard_sd <- unique(data_ringtest_subst_clean$standard_extract_uncertain)
+
 cell_stats_final |> 
   ggplot(aes(lab, mean, ymin = mean - sd, ymax = mean + sd)) +
   geom_point() +
   geom_errorbar() +
+  geom_hline(yintercept = standard, lty = 2) +
+  geom_hline(yintercept = standard + c(-1, 1) * standard_sd, lty = 3) +
   labs(x = "lab", y = "soil descriptor")
 ```
 
@@ -239,16 +236,21 @@ $$
 $$
 
 ```{r}
-res <- ringtest(cell_stats_final)
+res <- ringtest(cell_stats_final) |> 
+  mutate(
+    # add coefficients of variation
+    cv_r = s_r / m_hat,
+    cv_L = s_L / m_hat,
+    cv_R = s_R / m_hat
+  )
 res
 ```
 
-The reported standard measures (`standard_total_value` and `standard_total_uncertainty`) are shown below for comparison.
+The reported standard measures (`standard_extract_value` and `standard_extract_uncertainty`) are shown below for comparison.
 How are these values defined/calculated? (otherwise difficult to compare with results of the ringtest)
 
 ```{r}
 data_ringtest_subst_clean |> 
-  distinct(standard_total_value, standard_total_uncertain,
-           standard_extract_value, standard_extract_uncertain)
+  distinct(standard_extract_value, standard_extract_uncertain)
 ```
 
