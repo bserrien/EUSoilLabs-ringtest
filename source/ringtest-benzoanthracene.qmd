@@ -191,10 +191,8 @@ calc_mandel_hk(cell_stats, alpha = 0.05) |>
 ```
 
 Outlier removal should be an interactive process where the experts from the panel evaluate the data from a lab that is identified as outlier or straggler.
-Below we remove the outliers according to the ISO procedure using the Cochran (outlying variance) and Grubbs' tests (outlying means).
-The function `outlier_removal_iso` automates the process without due investigation but prints the results so researchers can inspect the labs which have been removed.
-The ISO procedure mentions that only 2/9 of the data from a given level should be removed (8.3.6.2§2); which means for `r nrow(cell_stats)` labs only `r round((2/9) * nrow(cell_stats))` can be removed; however, we previously removed already labs not meeting the reporting requirements, and I'm not sure if we have to count them as well (ISO manual is not clear on that point)?
-
+For now I just follow the statistical ISO procedure where I retain stragglers and remove outliers.
+The ISO procedure mentions that only 2/9 of the data from a given level should be removed (8.3.6.2§2); which means for `r nrow(cell_stats)` labs only `r round((2/9) * nrow(cell_stats))` can be removed; however, we previously removed already labs not meeting the reporting requirements, and I'm not sure if we have to count them as well?
 The final cleaned statistics per lab are shown in @fig-clean-cellstats.
 
 ```{r}
